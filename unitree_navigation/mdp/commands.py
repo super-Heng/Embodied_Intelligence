@@ -42,6 +42,8 @@ class WaypointCommand(CommandTerm):
         self.just_reached = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
         # 是否所有 wp 完成（脉冲）
         self.just_finished_all = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
+        # 距离每步减少量（dense reward 用），首步=0
+        self.progress = torch.zeros(self.num_envs, device=device)
 
     # -------------------------------------------------------------------------
     @property
@@ -77,10 +79,14 @@ class WaypointCommand(CommandTerm):
         )
         self.just_finished_all = (self.num_reached == self.cfg.num_waypoints) & reach_mask
 
-        # 进展量需要在 idx 推进之后基于"新当前目标"重算，避免到达瞬间 progress 突变
+        # 进展量基于"新当前目标"重算
         new_target = self.command
         new_dist = torch.linalg.norm(new_target - base_xy, dim=1)
-        self.progress = self.last_distance - new_dist  # 给 reward 取用
+        progress = self.last_distance - new_dist
+        # ⚠️ 到达瞬间 idx 已切换到下一个 wp → new_dist 会跳变到与新 wp 的距离，
+        # 此时把 progress 钳为 0，避免污染 dense reward；reach_waypoint 脉冲奖励另算。
+        progress = torch.where(reach_mask, torch.zeros_like(progress), progress)
+        self.progress = progress
         self.last_distance = new_dist
 
     # -------------------------------------------------------------------------

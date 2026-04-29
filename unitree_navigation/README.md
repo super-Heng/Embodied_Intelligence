@@ -80,3 +80,37 @@ ${ISAACLAB_PATH}/isaaclab.sh -p play.py --num_envs 1 --resume <ckpt>
 
 上层 policy 输出 `(vx, vy, wz)` → 直接喂给宇树 Go2 SDK 的 velocity 接口。
 **locomotion 这层 sim2real gap 由宇树官方控制器消化**，无需迁移低层 ckpt。
+
+## ⚠️ 已知限制 / 风险
+
+1. **stage1 的 lidar 看不到动态障碍**
+   Isaac Lab 的 `RayCaster` 走 warp BVH，启动时一次性烘焙静态 mesh。stage1 的盒子是
+   `RigidObject`（reset 时 `write_root_state_to_sim`），warp BVH **不会跟着更新**，所以：
+   - lidar 观测里 stage1 障碍是"透明"的 → 上层只能靠 `target_pos_b` + 撞上后的 `collision`
+     反馈学避障。
+   - **建议**：stage1 当作热身（学走 + 学奔向 wp），真正学避障从 stage2（地形烘焙静态）开始。
+   - 想要真正的动态扫描，把 lidar 改成 `RayCasterCameraCfg`（CPU/RTX）或 IsaacSim 的
+     `RtxLidarCfg`（需要 RTX，性能下降明显）。
+
+2. **`base_lin_vel` 是 sim-only 观测**
+   真机 IMU 给不出，部署前需要把这一项替换为 odom/legged-state estimator 估计值，
+   或者去掉重训。这是宇树官方 locomotion policy 的同款限制。
+
+3. **低层 ckpt 关节顺序必须与 `isaaclab_assets.UNITREE_GO2_CFG` 一致**
+   如果你用第三方 ckpt（比如 legged_gym 训的），关节排列可能不同，需在
+   `policy_loader.act` 里加置换矩阵。
+
+4. **`waypoint` 采样不会避开障碍**
+   极坐标随机采样可能落在障碍内。短期影响：episode 内 `unreachable wp → time_out`，
+   但 dense progress 信号仍可学习。要严格避障可在 `_resample_command` 里加
+   "采样 N 次 + lidar pre-check" 重试。
+
+5. **`stage3_campus` 占位实现**
+   默认是 4 栋 5×5×4m 楼。要换真实园区 USD：
+   `export CAMPUS_USD=/abs/path/campus.usd` 后再训。注意 USD 内必须有命名为
+   `/World/Campus/.../ground` 的可碰撞地面，否则要相应改 `mesh_prim_paths`。
+
+6. **PhysX GPU buffer 与 num_envs 强相关**
+   `config.yaml` 里默认按 1024 envs 配 `gpu_max_rigid_contact_count=2^24`。
+   如果你显存紧把 num_envs 降到 256，可以把这些 buffer 减到 2^22 节省显存；
+   反过来，envs > 2048 必须再加大，否则 sim 会 crash。

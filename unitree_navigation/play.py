@@ -72,7 +72,8 @@ def main():
     print(f"[INFO] loaded navigation ckpt: {args.resume}")
 
     policy = runner.get_inference_policy(device=env.device)
-    obs, _ = env.get_observations()
+    # RslRlVecEnvWrapper.reset() 返回 (obs_dict, extras)，policy 取 "policy" 键
+    obs, _ = env.reset()
     while simulation_app.is_running():
         with torch.inference_mode():
             actions = policy(obs)

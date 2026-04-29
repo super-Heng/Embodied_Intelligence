@@ -88,16 +88,32 @@ class LocomotionPolicy(nn.Module):
         # actor 权重命名通常 "actor.0.weight" 等
         actor_sd = {k[len("actor."):]: v for k, v in model_sd.items() if k.startswith("actor.")}
         if actor_sd:
-            self.actor.load_state_dict(actor_sd, strict=False)
-        # normalizer
-        norm_sd = sd.get("obs_norm_state_dict") or sd.get("normalizer")
-        if norm_sd and isinstance(self.normalizer, _EmpiricalNormalizer):
-            mean = norm_sd.get("running_mean", norm_sd.get("mean"))
-            var = norm_sd.get("running_var", norm_sd.get("var"))
+            missing, unexpected = self.actor.load_state_dict(actor_sd, strict=False)
+            if missing or unexpected:
+                print(f"[WARN] actor load_state_dict missing={missing} unexpected={unexpected}")
+        else:
+            print("[WARN] ckpt 中找不到 'actor.*' 前缀，actor 权重未加载")
+
+        # normalizer：rsl_rl 主流写法是 model_state_dict 里前缀 'obs_normalizer.'，
+        # 老版本/外置 ckpt 可能在顶层 'obs_norm_state_dict' / 'normalizer'
+        if isinstance(self.normalizer, _EmpiricalNormalizer):
+            mean = var = None
+            # 1) 嵌入 model_state_dict
+            for prefix in ("obs_normalizer.", "actor_obs_normalizer.", "normalizer."):
+                cand = {k[len(prefix):]: v for k, v in model_sd.items() if k.startswith(prefix)}
+                if cand:
+                    mean = cand.get("running_mean", cand.get("mean", mean))
+                    var = cand.get("running_var", cand.get("var", var))
+                    break
+            # 2) 顶层独立字段
+            if mean is None:
+                norm_sd = sd.get("obs_norm_state_dict") or sd.get("normalizer") or {}
+                mean = norm_sd.get("running_mean", norm_sd.get("mean"))
+                var = norm_sd.get("running_var", norm_sd.get("var"))
             if mean is not None:
-                self.normalizer.mean.copy_(mean.to(self.device))
+                self.normalizer.mean.copy_(mean.to(self.device).flatten()[: self.obs_dim])
             if var is not None:
-                self.normalizer.var.copy_(var.to(self.device))
+                self.normalizer.var.copy_(var.to(self.device).flatten()[: self.obs_dim])
 
     # -------------------------------------------------------------------------
     @torch.inference_mode()

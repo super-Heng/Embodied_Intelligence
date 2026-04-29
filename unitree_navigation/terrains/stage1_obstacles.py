@@ -60,6 +60,10 @@ def build_obstacle_cfgs() -> dict[str, RigidObjectCfg]:
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.3, 0.3)),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=(20.0 + i, 20.0, mid_h * 0.5)),
+            # 占位 spawn pos（env-local）：reset 事件里会立即重写到极坐标采样位置。
+            # 排成一条直线避开机器人初始 (0,0,0.4)，免得 spawn 瞬间互相穿插。
+            init_state=RigidObjectCfg.InitialStateCfg(
+                pos=(float(o.spawn_area_radius) + 1.0 + i * 0.5, 0.0, mid_h * 0.5)
+            ),
         )
     return cfgs

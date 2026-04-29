@@ -25,7 +25,8 @@ def build_heightmap_cfg(prim_path: str = "{ENV_REGEX_NS}/Robot/base") -> RayCast
         max_distance=10.0,
         update_period=float(h.update_period_s),
         debug_vis=False,
-        mesh_prim_paths=["/World/ground", "/World/obstacles"],
+        # 只对静态地形射线 —— 详见 lidar_cfg.py 中的同样限制说明。
+        mesh_prim_paths=["/World/ground"],
     )
 
 

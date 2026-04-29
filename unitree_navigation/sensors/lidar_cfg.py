@@ -29,6 +29,10 @@ def build_lidar_cfg(prim_path: str = "{ENV_REGEX_NS}/Robot/base") -> RayCasterCf
         max_distance=float(s.max_range),
         update_period=float(s.update_period_s),
         debug_vis=False,
-        # 只检测障碍/地形 prim，不打到机器人自身
-        mesh_prim_paths=["/World/ground", "/World/obstacles"],
+        # ⚠️ Isaac Lab RayCaster 用 warp BVH，只能击中 *启动期* 注册的 *静态 mesh*：
+        #   - stage2/3 的地形 mesh、stage3 的占位楼（kinematic）会被命中
+        #   - stage1 的 RigidObject 障碍 (dynamic) 不会被 lidar 看到 → 该阶段避障靠
+        #     (a) collision_with_obstacle (ContactSensor) 反馈，(b) 课程后期切到 stage2
+        # 想真正动态扫障，请改用 sensors.RayCasterCamera 或 RTX Lidar。
+        mesh_prim_paths=["/World/ground"],
     )
