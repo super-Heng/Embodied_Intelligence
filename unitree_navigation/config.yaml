@@ -1,0 +1,155 @@
+# =============================================================================
+# Unitree Go2 园区巡逻 + 避障 —— 集中配置
+#
+# 注释约定：
+#   [单位]      [推荐: a~b]      [影响]      [谨慎]
+# =============================================================================
+
+# ---- 课程阶段 ----
+curriculum:
+  # stage 1: 平地 + 程序化障碍
+  # stage 2: TerrainGenerator 粗糙地形 + 障碍 + 缓坡 + 矮台阶
+  # stage 3: 自定义园区 USD
+  # [推荐] 顺序训练，stage++ 时 --resume 上一阶段 ckpt
+  stage: 1
+
+# ---- 低层 locomotion ckpt ----
+locomotion:
+  # 训好的 Go2 velocity policy 路径（rsl_rl OnPolicyRunner 保存的 .pt）
+  # 留空则用零控（仅用于调试观测/碰撞），无法真正走路
+  ckpt_path: "./locomotion/checkpoints/go2_velocity.pt"
+
+  # 低层观测维度（必须与 ckpt 训练时一致）
+  # Isaac Lab 标准 Go2 velocity policy: 48 维
+  obs_dim: 48
+  action_dim: 12          # Go2 12 个驱动关节
+
+  # MLP 隐藏层（必须与 ckpt 一致；Isaac Lab 默认 [512,256,128]）
+  hidden_dims: [512, 256, 128]
+  activation: "elu"
+
+  # 是否在 ckpt 内做 obs normalization（empirical_normalization=True 时是）
+  empirical_normalization: true
+
+# ---- 场景规模 ----
+scene:
+  num_envs: 1024          # [推荐] L40 1024 envs ≈ 16GB 显存；显存紧可降到 512
+  env_spacing: 6.0        # [m] 含障碍的 env 需要更大间距，否则邻居障碍互相干扰
+
+# ---- 物理 ----
+sim:
+  device: "cuda:0"
+  dt: 0.005               # 200Hz 物理
+  decimation: 20          # → 上层决策 10Hz；低层 ckpt 在每个 sim step 推理（50Hz 等价）
+  episode_length_s: 60.0  # 巡逻任务单 ep 较长
+  physx:
+    solver_type: 1
+    max_position_iteration_count: 4
+    max_velocity_iteration_count: 1
+    bounce_threshold_velocity: 0.2
+    gpu_max_rigid_contact_count: 16777216         # 2^24  envs↑ 必须↑
+    gpu_max_rigid_patch_count: 4194304            # 2^22
+    gpu_found_lost_pairs_capacity: 4194304
+    gpu_found_lost_aggregate_pairs_capacity: 67108864
+    gpu_total_aggregate_pairs_capacity: 4194304
+
+# ---- 上层动作（速度指令）----
+action:
+  # 上层 policy 输出范围；通过 tanh 后再 scale
+  vx_scale: 1.0           # [m/s] [推荐: 0.8~1.5] Go2 实物 ≤ 1.5
+  vy_scale: 0.5           # [m/s] 侧向较慢
+  wz_scale: 1.0           # [rad/s]
+
+  # 是否对上层动作做 EMA 平滑（α=0.7 当前指令权重）
+  smoothing_alpha: 0.7
+
+# ---- 传感器 ----
+sensors:
+  lidar:
+    enabled: true
+    num_rays: 64                # 360° 水平均分
+    max_range: 5.0              # [m] [推荐: 3~8]
+    height_offset: 0.20         # [m] 相对 base 的安装高度
+    update_period_s: 0.1        # 10Hz，与上层决策同频
+  heightmap:
+    enabled: true
+    size_m: [1.6, 1.0]          # 前向 1.6m × 横向 1.0m
+    resolution: 0.1             # [m] → 17×11=187 个采样点
+    forward_offset: 0.5         # [m] 网格中心相对 base 的前向偏移
+    max_height: 1.0             # 归一化用 clip
+    update_period_s: 0.1
+
+# ---- Waypoint 巡逻指令 ----
+waypoint:
+  num_waypoints: 4              # 每 ep 顺序到达的 waypoint 数 [推荐: 2~6]
+  reach_radius: 0.5             # [m] 到达判定半径
+  spawn_radius_min: 2.0         # waypoint 与机器人/上一个 waypoint 的最小距离 [m]
+  spawn_radius_max: 8.0         # 最大距离 [m]
+  spawn_max_tries: 50           # 采样时避开障碍的最大重试次数
+  resample_on_episode_only: true  # true: 每 ep reset 时重生；false: 每个 wp 完成后追加新 wp
+
+# ---- Stage1 程序化障碍 ----
+stage1_obstacles:
+  num_per_env: 8                # 每个 env 散布的障碍数 [推荐: 4~12]
+  size_range_box: [0.3, 1.2]    # 盒子边长范围 [m]
+  size_range_cyl_r: [0.2, 0.6]  # 圆柱半径范围 [m]
+  height_range: [0.4, 1.5]      # 高度范围 [m]
+  spawn_area_radius: 7.0        # 障碍散布在以原点为中心的圆内 [m]
+  min_dist_to_robot: 1.5        # 与机器人初始位姿的安全距离 [m]
+
+# ---- 域随机化 ----
+domain_rand:
+  friction_static_range: [0.6, 1.2]
+  friction_dynamic_range: [0.4, 1.0]
+  added_base_mass_range: [-1.0, 3.0]
+  reset_pose_range: { x: [-0.5, 0.5], y: [-0.5, 0.5], yaw: [-3.14, 3.14] }
+  reset_joint_pos_scale: [0.95, 1.05]
+  reset_joint_vel_range: [-0.05, 0.05]
+
+# ---- 奖励 ----
+rewards:
+  weights:
+    progress_to_waypoint:   1.0      # 距离每步减少量；任务核心 dense 信号
+    reach_waypoint:         50.0     # 单 waypoint 完成脉冲
+    finish_all_waypoints:   200.0    # 全部完成（episode 内只发一次）
+    heading_alignment:      0.5      # 朝向目标的指数核
+    lidar_proximity:       -1.0      # 距障碍越近惩罚越大（exp 核）
+    collision:            -10.0      # 任何 base/torso 接触障碍
+    action_rate:           -0.05     # 速度指令变化率
+    time_penalty:          -0.005    # 每步常数惩罚，鼓励尽快完成
+    fall:                -200.0      # 翻倒一次性大惩罚
+  proximity_decay: 0.3               # lidar_proximity 的指数核 σ
+  heading_std: 0.5                   # heading_alignment 指数核 σ
+
+# ---- 终止 ----
+terminations:
+  fall_height: 0.15                  # base z 低于此 → 摔倒 [m]
+  fall_tilt_deg: 60.0                # roll/pitch 绝对值超过即摔倒 [°]
+  collision_force_threshold: 50.0    # base/torso 接触法向力 [N]，超过即终止
+
+# ---- PPO ----
+train:
+  seed: 42
+  max_iterations: 3000
+  num_steps_per_env: 24
+  save_interval: 100
+  experiment_name: "navigation"
+  empirical_normalization: true
+  policy:
+    init_noise_std: 0.8              # 巡逻任务，探索略小于 locomotion
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+    activation: "elu"
+  algorithm:
+    value_loss_coef: 1.0
+    use_clipped_value_loss: true
+    clip_param: 0.2
+    entropy_coef: 0.01               # 比 locomotion 略大，鼓励避障多探索
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    learning_rate: 0.0005            # 上层任务建议偏小
+    schedule: "adaptive"
+    gamma: 0.995                     # 巡逻 horizon 长，γ 取大
+    lam: 0.95
+    desired_kl: 0.01
+    max_grad_norm: 1.0
