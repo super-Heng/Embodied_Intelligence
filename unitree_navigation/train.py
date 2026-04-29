@@ -44,7 +44,12 @@ simulation_app = app_launcher.app
 import torch  # noqa: E402,F401
 
 from isaaclab.envs import ManagerBasedRLEnv  # noqa: E402
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper  # noqa: E402
+from isaaclab_rl.rsl_rl import (  # noqa: E402
+    RslRlOnPolicyRunnerCfg,
+    RslRlPpoActorCriticCfg,
+    RslRlPpoAlgorithmCfg,
+    RslRlVecEnvWrapper,
+)
 from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 
 from config import CFG  # noqa: E402
@@ -61,14 +66,14 @@ def build_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         experiment_name=f"{t.experiment_name}_stage{int(CFG.curriculum.stage)}",
         run_name=datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
         empirical_normalization=bool(t.empirical_normalization),
-        policy=dict(
+        policy=RslRlPpoActorCriticCfg(
             class_name="ActorCritic",
             init_noise_std=float(t.policy.init_noise_std),
             actor_hidden_dims=list(t.policy.actor_hidden_dims),
             critic_hidden_dims=list(t.policy.critic_hidden_dims),
             activation=str(t.policy.activation),
         ),
-        algorithm=dict(
+        algorithm=RslRlPpoAlgorithmCfg(
             class_name="PPO",
             value_loss_coef=float(t.algorithm.value_loss_coef),
             use_clipped_value_loss=bool(t.algorithm.use_clipped_value_loss),

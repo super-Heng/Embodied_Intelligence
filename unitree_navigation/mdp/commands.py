@@ -121,12 +121,36 @@ class WaypointCommand(CommandTerm):
         # CommandTerm 父类需要这个钩子；本类没有"漂移式"指令更新，留空
         pass
 
-    # 可视化（debug_vis）
+    # 可视化（debug_vis）——在当前目标 wp 处画一个绿球
     def _set_debug_vis_impl(self, debug_vis: bool):
-        pass
+        if debug_vis:
+            if not hasattr(self, "_goal_marker"):
+                from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+                import isaaclab.sim as sim_utils
+                cfg = VisualizationMarkersCfg(
+                    prim_path="/Visuals/Command/waypoint_goal",
+                    markers={
+                        "goal": sim_utils.SphereCfg(
+                            radius=float(self.cfg.reach_radius),
+                            visual_material=sim_utils.PreviewSurfaceCfg(
+                                diffuse_color=(0.1, 0.9, 0.2), opacity=0.5,
+                            ),
+                        ),
+                    },
+                )
+                self._goal_marker = VisualizationMarkers(cfg)
+            self._goal_marker.set_visibility(True)
+        elif hasattr(self, "_goal_marker"):
+            self._goal_marker.set_visibility(False)
 
     def _debug_vis_callback(self, event):
-        pass
+        if not hasattr(self, "_goal_marker"):
+            return
+        # 当前目标 XY (world)， z 取机器人高度 + 0.5m
+        target_xy = self.command
+        z = self.robot.data.root_pos_w[:, 2:3] + 0.5
+        pos = torch.cat([target_xy, z], dim=1)
+        self._goal_marker.visualize(translations=pos)
 
 
 @configclass
@@ -139,3 +163,4 @@ class WaypointCommandCfg(CommandTermCfg):
     spawn_radius_max: float = 8.0
     # 父类要求字段（resampling_time_range/debug_vis），这里设为占位
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)  # 永不主动重采样
+    debug_vis: bool = False

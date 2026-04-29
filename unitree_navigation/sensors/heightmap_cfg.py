@@ -10,7 +10,10 @@ from isaaclab.utils import configclass
 from config import CFG
 
 
-def build_heightmap_cfg(prim_path: str = "{ENV_REGEX_NS}/Robot/base") -> RayCasterCfg:
+def build_heightmap_cfg(
+    prim_path: str = "{ENV_REGEX_NS}/Robot/base",
+    mesh_prim_paths: list[str] | None = None,
+) -> RayCasterCfg:
     h = CFG.sensors.heightmap
     size_x, size_y = float(h.size_m[0]), float(h.size_m[1])
     res = float(h.resolution)
@@ -26,7 +29,7 @@ def build_heightmap_cfg(prim_path: str = "{ENV_REGEX_NS}/Robot/base") -> RayCast
         update_period=float(h.update_period_s),
         debug_vis=False,
         # 只对静态地形射线 —— 详见 lidar_cfg.py 中的同样限制说明。
-        mesh_prim_paths=["/World/ground"],
+        mesh_prim_paths=list(mesh_prim_paths) if mesh_prim_paths else ["/World/ground"],
     )
 
 

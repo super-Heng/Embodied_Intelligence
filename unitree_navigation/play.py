@@ -31,7 +31,12 @@ simulation_app = app_launcher.app
 import torch  # noqa: E402
 
 from isaaclab.envs import ManagerBasedRLEnv  # noqa: E402
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper  # noqa: E402
+from isaaclab_rl.rsl_rl import (  # noqa: E402
+    RslRlOnPolicyRunnerCfg,
+    RslRlPpoActorCriticCfg,
+    RslRlPpoAlgorithmCfg,
+    RslRlVecEnvWrapper,
+)
 from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 
 from config import CFG  # noqa: E402
@@ -40,9 +45,10 @@ from env_cfg import build_env_cfg  # noqa: E402
 
 def main():
     env_cfg = build_env_cfg(stage=int(CFG.curriculum.stage))
-    # 打开传感器 debug_vis（lidar 射线 / heightmap 网格）
+    # 打开传感器 debug_vis（lidar 射线 / heightmap 网格 / waypoint 球标）
     env_cfg.scene.lidar.debug_vis = True
     env_cfg.scene.heightmap.debug_vis = True
+    env_cfg.commands.waypoint.debug_vis = True
 
     env = ManagerBasedRLEnv(cfg=env_cfg)
     env = RslRlVecEnvWrapper(env)
@@ -55,17 +61,19 @@ def main():
         save_interval=10000,
         experiment_name="play",
         empirical_normalization=bool(t.empirical_normalization),
-        policy=dict(
+        policy=RslRlPpoActorCriticCfg(
             class_name="ActorCritic",
             init_noise_std=float(t.policy.init_noise_std),
             actor_hidden_dims=list(t.policy.actor_hidden_dims),
             critic_hidden_dims=list(t.policy.critic_hidden_dims),
             activation=str(t.policy.activation),
         ),
-        algorithm=dict(class_name="PPO", value_loss_coef=1.0, use_clipped_value_loss=True,
-                       clip_param=0.2, entropy_coef=0.0, num_learning_epochs=1,
-                       num_mini_batches=1, learning_rate=1e-4, schedule="fixed",
-                       gamma=0.99, lam=0.95, desired_kl=0.01, max_grad_norm=1.0),
+        algorithm=RslRlPpoAlgorithmCfg(
+            class_name="PPO", value_loss_coef=1.0, use_clipped_value_loss=True,
+            clip_param=0.2, entropy_coef=0.0, num_learning_epochs=1,
+            num_mini_batches=1, learning_rate=1e-4, schedule="fixed",
+            gamma=0.99, lam=0.95, desired_kl=0.01, max_grad_norm=1.0,
+        ),
     )
     runner = OnPolicyRunner(env, runner_cfg.to_dict(), log_dir=None, device=str(env.device))
     runner.load(args.resume)

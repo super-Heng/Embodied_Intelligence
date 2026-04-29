@@ -14,7 +14,10 @@ from isaaclab.utils import configclass
 from config import CFG
 
 
-def build_lidar_cfg(prim_path: str = "{ENV_REGEX_NS}/Robot/base") -> RayCasterCfg:
+def build_lidar_cfg(
+    prim_path: str = "{ENV_REGEX_NS}/Robot/base",
+    mesh_prim_paths: list[str] | None = None,
+) -> RayCasterCfg:
     s = CFG.sensors.lidar
     return RayCasterCfg(
         prim_path=prim_path,
@@ -34,5 +37,5 @@ def build_lidar_cfg(prim_path: str = "{ENV_REGEX_NS}/Robot/base") -> RayCasterCf
         #   - stage1 的 RigidObject 障碍 (dynamic) 不会被 lidar 看到 → 该阶段避障靠
         #     (a) collision_with_obstacle (ContactSensor) 反馈，(b) 课程后期切到 stage2
         # 想真正动态扫障，请改用 sensors.RayCasterCamera 或 RTX Lidar。
-        mesh_prim_paths=["/World/ground"],
+        mesh_prim_paths=list(mesh_prim_paths) if mesh_prim_paths else ["/World/ground"],
     )

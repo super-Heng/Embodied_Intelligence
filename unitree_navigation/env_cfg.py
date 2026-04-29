@@ -45,17 +45,31 @@ from terrains import stage1_obstacles, stage2_terrain, stage3_campus
 def _build_scene_cls(stage: int):
     """返回一个 InteractiveSceneCfg 子类（按 stage 装配）。"""
 
+    # 静态 mesh 路径只可能被 raycaster 击中：
+    #   - stage1：地面为一（障碍 dynamic，看不到）
+    #   - stage2：地形 mesh为一
+    #   - stage3：地面 + 占位楼 / 园区 USD。为避免击中机器人自身，
+    #            不用 "/World" 根路径，而是列出占位楼 或 /World/Campus。
     if stage == 1:
         terrain_cfg = stage1_obstacles.build_terrain_cfg()
         obstacles = stage1_obstacles.build_obstacle_cfgs()
         extras: dict = {}
+        sensor_meshes = ["/World/ground"]
     elif stage == 2:
         terrain_cfg = stage2_terrain.build_terrain_cfg()
         obstacles, extras = {}, {}
+        sensor_meshes = ["/World/ground"]
     elif stage == 3:
         terrain_cfg = stage3_campus.build_terrain_cfg()
         obstacles = {}
         extras = stage3_campus.build_campus_assets()
+        # 直接从 AssetBaseCfg 拿 prim_path（去掉末尾 /*），保证与场景实际 prim 一致
+        sensor_meshes = ["/World/ground"]
+        for c in extras.values():
+            pp = getattr(c, "prim_path", None)
+            if pp:
+                sensor_meshes.append(pp)
+        sensor_meshes = sorted(set(sensor_meshes))
     else:
         raise ValueError(f"unknown stage: {stage}")
 
@@ -70,8 +84,14 @@ def _build_scene_cls(stage: int):
             update_period=0.0,
             track_air_time=False,
         )
-        lidar = build_lidar_cfg(prim_path="{ENV_REGEX_NS}/Robot/base")
-        heightmap = build_heightmap_cfg(prim_path="{ENV_REGEX_NS}/Robot/base")
+        lidar = build_lidar_cfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base",
+            mesh_prim_paths=sensor_meshes,
+        )
+        heightmap = build_heightmap_cfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base",
+            mesh_prim_paths=sensor_meshes,
+        )
         sky_light = AssetBaseCfg(
             prim_path="/World/skyLight",
             spawn=sim_utils.DomeLightCfg(intensity=1000.0, color=(1.0, 1.0, 1.0)),
