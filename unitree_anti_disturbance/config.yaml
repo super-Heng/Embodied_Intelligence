@@ -1,0 +1,247 @@
+# =============================================================================
+# Unitree Anti-Disturbance Walking —— 集中配置
+# 改这里就够了，不需要动 .py 代码
+#
+# 注释约定：
+#   [单位]            物理量单位
+#   [推荐: a~b]       常用经验区间
+#   [影响]            修改后会影响哪些行为
+#   [谨慎]            动它前最好先理解，否则可能不收敛 / 物理炸
+# =============================================================================
+
+robot:
+  # URDF 绝对路径。null 时回退到环境变量 UNITREE_URDF
+  # [影响] 决定加载的机器人本体；换 H1/G1/Go2 必改
+  urdf_path: null
+
+  # USD 缓存目录（URDF 第一次会被自动转换为 USD 缓存到这里）
+  # [推荐] 放在固态盘上，启动会快很多
+  usd_cache_dir: ~/.cache/unitree_usd
+
+  # 是否强制重新转换 URDF→USD（无视 hash 缓存）
+  # [推荐] 平时 false；改了 URDF mesh / inertia 但 hash 没变时设 true
+  force_reconvert: false
+
+  # 机器人初始 base 位姿 (x, y, z) [单位: m]
+  # [推荐] H1≈[0,0,1.05]  G1≈[0,0,0.78]  Go2≈[0,0,0.40]
+  # [影响] z 太低出生就触地 / 太高会自由落体一段时间
+  init_pos: [0.0, 0.0, 1.05]
+
+  # 根 link 名（用于"加质量随机化"和后续可能的扰动施力点）
+  # 写多个会按宽泛匹配；只要 URDF 里至少有一个匹配即可
+  # [推荐] H1: ["pelvis","torso_link"]   G1: ["pelvis"]   Go2: ["base"]
+  base_body_names: ["pelvis", "torso_link", "base_link"]
+
+  # 关节执行器分组（implicit PD 控制器，跑在 GPU 上）
+  # joint_names_expr 用正则匹配 URDF 里的关节名
+  # [谨慎] PD 决定整个系统刚度，调错会震荡 / 软脚
+  actuator_groups:
+    legs:
+      joint_names_expr: [".*hip.*", ".*knee.*", ".*ankle.*"]
+      stiffness: 150.0        # [N·m/rad] [推荐: 80~250] 越大越"硬"，太大易高频震荡
+      damping: 5.0            # [N·m·s/rad] [推荐: 2~10] 阻尼，太小震荡 太大迟钝
+      effort_limit: 200.0     # [N·m] 力矩上限；H1 实物腿部 ≈ 200~360
+      velocity_limit: 20.0    # [rad/s] 关节最大速度
+    upper:
+      joint_names_expr: [".*torso.*", ".*shoulder.*", ".*elbow.*"]
+      stiffness: 40.0         # 上半身刚度调低，让手臂能被动甩，降低控制难度
+      damping: 2.0
+      effort_limit: 80.0
+      velocity_limit: 15.0
+
+scene:
+  # 并行环境数（关键吞吐量参数）
+  # [推荐] L40(48G) 100 envs ≈ 6~8GB 显存；可以加到 1024 都没问题
+  # [影响] envs↑ 训练 wall-clock 收敛快，但单次 iteration 耗时↑
+  num_envs: 100
+
+  # 每个 env 在世界里的网格间距 [单位: m]
+  # [推荐] 人形 3.0；四足 1.5~2.0
+  # [影响] 太小邻居会互相穿模触发碰撞
+  env_spacing: 3.0
+
+sim:
+  # 物理 / 渲染设备
+  # [推荐] "cuda:0"；多卡可写 "cuda:1"
+  device: "cuda:0"
+
+  # 物理步长 dt [单位: s]
+  # [推荐] 1/200 = 0.005（人形腿足标配）；1/400 更稳但 2 倍开销
+  # [谨慎] dt 改了一定要同步改 decimation 保持控制频率
+  dt: 0.005
+
+  # 物理步与控制步的比；控制频率 = 1/(dt*decimation)
+  # [推荐] 4 → 50Hz 控制；Unitree 实物 SDK 也是 50Hz
+  decimation: 4
+
+  # 单 episode 最大时长 [单位: s] 超时即 reset
+  # [推荐: 10~30] 太短学不到长期平衡；太长 reward 稀疏
+  episode_length_s: 20.0
+
+  physx:
+    # 求解器类型：0=PGS（快、稳定差） 1=TGS（推荐、对接触更稳）
+    solver_type: 1
+
+    # 位置/速度求解迭代次数
+    # [推荐: position 4~16, velocity 1~8] 越大越稳但越慢；人形给 8/4
+    max_position_iteration_count: 8
+    max_velocity_iteration_count: 4
+
+    # 触发反弹的最小相对速度 [单位: m/s]
+    # [推荐: 0.2] 低于该值的接触不反弹，避免脚底高频抖动
+    bounce_threshold_velocity: 0.2
+
+    # —— GPU buffer 容量；envs↑ 必须同步↑，否则 PhysX 会报 buffer overflow ——
+    # 100 envs 人形：以下默认值充裕；1000 envs 全部 ×4
+    gpu_max_rigid_contact_count: 8388608          # 2^23  全场总接触上限
+    gpu_max_rigid_patch_count: 2097152            # 2^21  接触 patch 上限
+    gpu_found_lost_pairs_capacity: 2097152        # 2^21  新增/消失对
+    gpu_found_lost_aggregate_pairs_capacity: 33554432  # 2^25
+    gpu_total_aggregate_pairs_capacity: 2097152   # 2^21
+
+action:
+  # 关节位置动作缩放：实际 target = default_joint_pos + scale * action
+  # [推荐: 0.25~0.5] 太大动作幅度过激易摔；太小学不动
+  scale: 0.5
+
+  # 是否在动作上叠加默认关节位姿（推荐 true，让 0 动作 = 站立姿态）
+  use_default_offset: true
+
+commands:
+  # 速度指令重采样间隔 [单位: s]
+  # [推荐: (5,15)] 太短策略学不到稳定追踪；太长 episode 内变化少
+  resampling_time_range: [8.0, 12.0]
+
+  # 站立指令的环境占比（vx=vy=wz=0）
+  # [推荐: 0.05~0.2] 强制一部分环境学"原地稳住"
+  rel_standing_envs: 0.1
+
+  # 是否用 heading 控制 yaw 角速度（true 时 yaw_cmd 由航向误差自动算出）
+  # [推荐] true，更接近真实遥控指令
+  heading_command: true
+
+  # —— 速度指令采样区间 [单位: m/s 或 rad/s] ——
+  # 课程学习思路：先训窄区间稳了，再逐步加宽
+  lin_vel_x: [-1.0, 1.0]    # [推荐] 入门 [-0.5,0.5]，进阶 [-1.5,1.5]
+  lin_vel_y: [-0.5, 0.5]    # 侧向；人形 |y|≤0.5 比较合理
+  ang_vel_z: [-1.0, 1.0]    # yaw 角速度
+
+# —— 抗干扰外力（周期事件，每 interval 推一次）——
+disturbance:
+  # 推力间隔 [单位: s] 每个 env 在该区间均匀采样下次推力时刻
+  # [推荐: (5,10)] 太频繁策略学不到行走；太稀疏抗扰能力差
+  interval_range_s: [5.0, 10.0]
+
+  # 推力强度：直接在 base 当前线/角速度上叠加一个随机增量 [m/s, rad/s]
+  # [推荐] 入门 ±0.5；标准 ±1.5；硬核 ±3.0（容易摔，需配合更高 alive 奖励）
+  velocity_range:
+    x:   [-1.5, 1.5]   # 前后
+    y:   [-1.5, 1.5]   # 左右
+    z:   [0.0, 0.0]    # 通常不动 z；可设 [0,0.5] 模拟被向上挑
+    yaw: [-0.5, 0.5]   # 旋转扰动
+
+# —— 域随机化（startup 一次 / reset 每次）——
+# 目的：缩小 sim2real gap，让策略对参数不敏感
+domain_rand:
+  # 地面静/动摩擦系数采样区间
+  # [推荐] 静 [0.6,1.2] 动 [0.4,1.0]；湿滑场景下限可降到 0.2
+  friction_static_range: [0.6, 1.2]
+  friction_dynamic_range: [0.4, 1.0]
+
+  # 弹性恢复系数；人形几乎不弹，保持 0~0.1 即可
+  restitution_range: [0.0, 0.1]
+
+  # 给 base 附加质量 [单位: kg]（模拟背包/电池差异）
+  # [推荐] [-2,5]；想训搬运可放大到 [-3,15]
+  added_base_mass_range: [-2.0, 5.0]
+
+  # reset 时 base 位姿扰动
+  # x/y [m]，yaw [rad]
+  reset_pose_range: { x: [-0.5, 0.5], y: [-0.5, 0.5], yaw: [-3.14, 3.14] }
+
+  # reset 时关节位置缩放（相对默认姿态）；速度直接采样
+  # [推荐] 位置 [0.9,1.1]，速度 [-0.1,0.1]
+  reset_joint_pos_scale: [0.9, 1.1]
+  reset_joint_vel_range: [-0.1, 0.1]
+
+rewards:
+  # 速度追踪指数核宽度 σ；reward = exp(-err²/σ²)
+  # [推荐: 0.2~0.5] 越小越苛刻（误差稍大就掉到 0），越大越宽松
+  tracking_std: 0.25
+
+  # 高度追踪目标 [单位: m]，应与 robot.init_pos[2] 一致
+  # [推荐] H1=1.05, G1=0.78, Go2=0.30
+  target_height: 1.05
+
+  # —— 11 个奖励项权重 ——
+  # 正值=鼓励，负值=惩罚；最终 reward = Σ weight_i * term_i
+  # [调参顺序] 先把 tracking 调到能跟 → 再加 upright/height 防摔
+  #            → 最后微调 torque/action_rate 让动作平滑
+  weights:
+    track_lin_vel_xy: 1.5         # [推荐: 1.0~2.0] 主任务奖励，权重最大
+    track_ang_vel_z:  0.75        # [推荐: 0.5~1.0] 转向跟踪
+    upright:          0.5         # [推荐: 0.3~1.0] 鼓励 base 直立
+    base_height:    -10.0         # [推荐: -50~-5] 高度偏离平方惩罚（绝对值大）
+    ang_vel_xy:      -0.05        # [推荐: -0.1~-0.01] roll/pitch 角速度阻尼
+    lin_vel_z:       -2.0         # [推荐: -4~-1] 抑制竖直方向速度（被推时不能起飞）
+    joint_torques:   -0.000025    # [推荐: -1e-4~-1e-5] 力矩 L2 惩罚（避免硬拉）
+    action_rate:     -0.01        # [推荐: -0.05~-0.005] 动作平滑（抗抖动）
+    joint_acc:       -0.00000025  # [推荐: -1e-6~-1e-7] 关节加速度惩罚
+    alive:            0.15        # [推荐: 0.05~0.3] 每步生存奖励，配合 termination 用
+    termination:   -200.0         # [推荐: -500~-50] 摔倒一次性大惩罚
+
+terminations:
+  # 摔倒判定：base 高度低于该阈值即 done [单位: m]
+  # [推荐] 站立高度的一半左右；H1=0.5, G1=0.4, Go2=0.15
+  min_base_height: 0.5
+
+# —— PPO / rsl_rl ——
+train:
+  # 随机种子；同种子+同 num_envs 可复现
+  seed: 42
+
+  # 训练总迭代数（一个 iteration = num_envs * num_steps_per_env 步）
+  # [推荐] 行走任务 3000~10000；100 envs L40 上约 1~3 小时
+  max_iterations: 3000
+
+  # 每个 env 每个 iteration 收集多少步 rollout
+  # [推荐: 24~48] batch_size = num_envs * num_steps_per_env
+  num_steps_per_env: 24
+
+  # 每多少 iteration 存一次 checkpoint
+  save_interval: 100
+
+  # 实验名（决定 log 子目录），改名可避免覆盖历史 run
+  experiment_name: "anti-disturbance"
+
+  # 是否对观测做经验归一化（running mean/std）
+  # [推荐] true，对人形几乎必开，否则训练极不稳定
+  empirical_normalization: true
+
+  policy:
+    # 高斯策略初始 std；越大初期探索越激进
+    # [推荐: 0.8~1.2]
+    init_noise_std: 1.0
+
+    # MLP 隐藏层大小；人形可保持 [512,256,128]
+    # [影响] 更大网络拟合更强但 GPU 占用↑
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+
+    # 激活函数；可选 elu / relu / tanh
+    # [推荐] elu（在腿足任务上经验最好）
+    activation: "elu"
+
+  algorithm:
+    value_loss_coef: 1.0          # value loss 权重；默认 1.0 即可
+    use_clipped_value_loss: true  # PPO 经典做法，建议 true
+    clip_param: 0.2               # PPO 裁剪 ε [推荐: 0.1~0.3]
+    entropy_coef: 0.005           # 熵奖励 [推荐: 0.001~0.01] 大→更探索
+    num_learning_epochs: 5        # 每批数据训练几个 epoch [推荐: 3~10]
+    num_mini_batches: 4           # mini-batch 拆分数 [推荐: 4~8]
+    learning_rate: 0.001          # 初始学习率 [推荐: 5e-4~1e-3]，配合 adaptive 自动调
+    schedule: "adaptive"          # "fixed" / "adaptive"（按 KL 调整 lr）
+    gamma: 0.99                   # 折扣因子 [推荐: 0.98~0.995]
+    lam: 0.95                     # GAE λ [推荐: 0.9~0.97]
+    desired_kl: 0.01              # 自适应 lr 的目标 KL [推荐: 0.008~0.02]
+    max_grad_norm: 1.0            # 梯度裁剪范数 [推荐: 0.5~1.0]

@@ -1,0 +1,34 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Isaac Sim / Lab 产物 ---
+logs/
+runs/
+outputs/
+checkpoints/
+wandb/
+*.usd
+*.usda
+*.usdc
+*.usdz
+.cache/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- 其它 ---
+*.log
+*.tmp
