@@ -49,7 +49,9 @@ def build_obstacle_cfgs() -> dict[str, RigidObjectCfg]:
     cfgs: dict[str, RigidObjectCfg] = {}
     for i in range(n):
         cfgs[f"obstacle_{i}"] = RigidObjectCfg(
-            prim_path=f"{{ENV_REGEX_NS}}/Obstacles/Box_{i}",
+            # ⚠️ Isaac Lab 的 spawn 不会自动创建中间父 prim，所以这里必须扁平：
+            #     `{ENV_REGEX_NS}/Obstacle_i`，不能写 `{ENV_REGEX_NS}/Obstacles/Box_i`
+            prim_path=f"{{ENV_REGEX_NS}}/Obstacle_{i}",
             spawn=sim_utils.CuboidCfg(
                 size=(mid_size, mid_size, mid_h),
                 rigid_props=sim_utils.RigidBodyPropertiesCfg(
