@@ -41,10 +41,13 @@ unitree_navigation/
 
 ### Phase 0：先准备低层 Go2 velocity ckpt
 
-复用 Isaac Lab 自带任务（不用我写代码）：
+复用 Isaac Lab 自带任务（不用我写代码）。**注意**：Isaac Lab 已把脚本目录从
+`source/standalone/workflows/...` 迁到 `scripts/reinforcement_learning/...`，
+旧文档里的路径已失效。
+
 ```bash
 cd ${ISAACLAB_PATH}
-./isaaclab.sh -p source/standalone/workflows/rsl_rl/train.py \
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
   --task Isaac-Velocity-Rough-Unitree-Go2-v0 \
   --num_envs 4096 --headless --max_iterations 1500
 ```
@@ -54,6 +57,10 @@ mkdir -p unitree_navigation/locomotion/checkpoints
 cp ${ISAACLAB_PATH}/logs/rsl_rl/unitree_go2_rough/<run>/model_1500.pt \
    unitree_navigation/locomotion/checkpoints/go2_velocity.pt
 ```
+
+> 兼容性提示：rsl_rl 5.0 起 ckpt 内字段从 `model_state_dict` / `obs_norm_state_dict`
+> 切到了 `model_state_dict` 内嵌 `obs_normalizer.*` 前缀。我已经在
+> `locomotion/policy_loader.py` 里同时兼容两种格式，无需手动改 ckpt。
 
 ### Phase 1+：训上层 navigation
 
