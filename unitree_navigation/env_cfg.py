@@ -178,26 +178,18 @@ class ObservationsCfg:
 def _build_events_cls(stage: int):
     @configclass
     class _EventsCfg:
-        physics_material = EventTerm(
-            func=base_mdp.randomize_rigid_body_material,
-            mode="startup",
-            params={
-                "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-                "static_friction_range": tuple(CFG.domain_rand.friction_static_range),
-                "dynamic_friction_range": tuple(CFG.domain_rand.friction_dynamic_range),
-                "restitution_range": (0.0, 0.1),
-                "num_buckets": 32,
-            },
-        )
-        add_base_mass = EventTerm(
-            func=base_mdp.randomize_rigid_body_mass,
-            mode="startup",
-            params={
-                "asset_cfg": SceneEntityCfg("robot", body_names=["base", "trunk"]),
-                "mass_distribution_params": tuple(CFG.domain_rand.added_base_mass_range),
-                "operation": "add",
-            },
-        )
+        # ⚠️ startup 期的 randomize_rigid_body_material / _mass 在当前 IsaacLab 5.1 上
+        # 用我们这套配置触发 "got an unexpected keyword argument 'asset_cfg'" 报错
+        # （疑似 ManagerTermBase 实例化路径与函数调用路径选择问题）。这两项不影响导航
+        # 任务首轮训练（域随机化对 sim2real 才关键），先注释掉，等 pipeline 通了再补。
+        #
+        # physics_material = EventTerm(
+        #     func=base_mdp.randomize_rigid_body_material, mode="startup", params={...},
+        # )
+        # add_base_mass = EventTerm(
+        #     func=base_mdp.randomize_rigid_body_mass, mode="startup", params={...},
+        # )
+
         reset_base = EventTerm(
             func=base_mdp.reset_root_state_uniform,
             mode="reset",
