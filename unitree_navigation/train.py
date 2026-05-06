@@ -92,22 +92,53 @@ def build_runner_cfg() -> RslRlOnPolicyRunnerCfg:
 
 
 def main():
-    env_cfg = build_env_cfg(stage=int(CFG.curriculum.stage))
-    env = ManagerBasedRLEnv(cfg=env_cfg)
-    env = RslRlVecEnvWrapper(env)
+    import sys, traceback
 
-    runner_cfg = build_runner_cfg()
-    log_dir = os.path.join(args.logdir, runner_cfg.experiment_name, runner_cfg.run_name)
-    os.makedirs(log_dir, exist_ok=True)
+    def _step(msg):
+        print(f"[NAV-TRAIN] {msg}", flush=True)
 
-    runner = OnPolicyRunner(env, runner_cfg.to_dict(), log_dir=log_dir, device=str(env.device))
+    try:
+        _step(f"build_env_cfg(stage={int(CFG.curriculum.stage)}) ...")
+        env_cfg = build_env_cfg(stage=int(CFG.curriculum.stage))
+        _step(f"  scene.num_envs={env_cfg.scene.num_envs}  decimation={env_cfg.decimation}")
 
-    if args.resume and os.path.isfile(args.resume):
-        print(f"[INFO] resume from: {args.resume}")
-        runner.load(args.resume)
+        _step("ManagerBasedRLEnv(...) ...")
+        env = ManagerBasedRLEnv(cfg=env_cfg)
+        _step(f"  obs space: { {k: v.shape for k, v in env.observation_space.items()} }")
+        _step(f"  act space: {env.action_space.shape}")
 
-    runner.learn(num_learning_iterations=runner_cfg.max_iterations, init_at_random_ep_len=True)
-    env.close()
+        _step("RslRlVecEnvWrapper(env) ...")
+        env = RslRlVecEnvWrapper(env)
+
+        _step("build_runner_cfg() ...")
+        runner_cfg = build_runner_cfg()
+        log_dir = os.path.join(args.logdir, runner_cfg.experiment_name, runner_cfg.run_name)
+        os.makedirs(log_dir, exist_ok=True)
+        _step(f"  log_dir={log_dir}")
+
+        _step("OnPolicyRunner(...) ...")
+        runner = OnPolicyRunner(env, runner_cfg.to_dict(), log_dir=log_dir, device=str(env.device))
+
+        if args.resume and os.path.isfile(args.resume):
+            _step(f"resume from: {args.resume}")
+            runner.load(args.resume)
+
+        _step(f"runner.learn(num_iter={runner_cfg.max_iterations}) ...")
+        runner.learn(
+            num_learning_iterations=runner_cfg.max_iterations,
+            init_at_random_ep_len=True,
+        )
+        _step("done; env.close()")
+        env.close()
+    except SystemExit as e:
+        _step(f"SystemExit({e.code}) — Isaac Sim 提前退出")
+        raise
+    except BaseException:
+        _step("EXCEPTION traceback ↓↓↓")
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        raise
 
 
 if __name__ == "__main__":
