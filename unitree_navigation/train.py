@@ -45,8 +45,8 @@ import torch  # noqa: E402,F401
 
 from isaaclab.envs import ManagerBasedRLEnv  # noqa: E402
 from isaaclab_rl.rsl_rl import (  # noqa: E402
+    RslRlMLPModelCfg,
     RslRlOnPolicyRunnerCfg,
-    RslRlPpoActorCriticCfg,
     RslRlPpoAlgorithmCfg,
     RslRlVecEnvWrapper,
 )
@@ -57,7 +57,36 @@ from env_cfg import build_env_cfg  # noqa: E402
 
 
 def build_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+    """构造 rsl_rl >= 5.0 的 runner 配置 (actor/critic 分离, 走 MLPModel)。"""
     t = CFG.train
+
+    # actor: 高斯分布输出 (vx, vy, wz)
+    actor_cfg = RslRlMLPModelCfg(
+        class_name="MLPModel",
+        hidden_dims=list(t.policy.actor_hidden_dims),
+        activation=str(t.policy.activation),
+        obs_normalization=bool(t.empirical_normalization),
+        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(
+            class_name="GaussianDistribution",
+            init_std=float(t.policy.init_noise_std),
+            std_type="scalar",
+        ),
+        # 兼容字段（rsl_rl 5 的 MLPModel 仍读 stochastic 标志）
+        stochastic=True,
+        init_noise_std=float(t.policy.init_noise_std),
+    )
+
+    # critic: 标量值函数, 不需要分布
+    critic_cfg = RslRlMLPModelCfg(
+        class_name="MLPModel",
+        hidden_dims=list(t.policy.critic_hidden_dims),
+        activation=str(t.policy.activation),
+        obs_normalization=bool(t.empirical_normalization),
+        distribution_cfg=None,
+        stochastic=False,
+        init_noise_std=0.0,
+    )
+
     return RslRlOnPolicyRunnerCfg(
         seed=int(t.seed),
         num_steps_per_env=int(t.num_steps_per_env),
@@ -66,13 +95,9 @@ def build_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         experiment_name=f"{t.experiment_name}_stage{int(CFG.curriculum.stage)}",
         run_name=datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
         empirical_normalization=bool(t.empirical_normalization),
-        policy=RslRlPpoActorCriticCfg(
-            class_name="ActorCritic",
-            init_noise_std=float(t.policy.init_noise_std),
-            actor_hidden_dims=list(t.policy.actor_hidden_dims),
-            critic_hidden_dims=list(t.policy.critic_hidden_dims),
-            activation=str(t.policy.activation),
-        ),
+        obs_groups={"actor": ["policy"], "critic": ["policy"]},
+        actor=actor_cfg,
+        critic=critic_cfg,
         algorithm=RslRlPpoAlgorithmCfg(
             class_name="PPO",
             value_loss_coef=float(t.algorithm.value_loss_coef),
